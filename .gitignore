@@ -1,0 +1,19 @@
+# Secrets -- never commit these
+.env
+
+# The local database and any exported spreadsheets
+checkouts.db
+exports/*.xlsx
+
+# Python virtual environment and caches
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# macOS clutter
+.DS_Store
+
+# Detached-run bookkeeping
+.bot.pid
+bot.log

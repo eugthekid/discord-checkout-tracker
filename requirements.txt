@@ -1,0 +1,6 @@
+# Python packages this project needs. Install with:
+#   pip install -r requirements.txt
+
+discord.py>=2.3,<3      # the Discord bot library (client, embeds, slash commands)
+openpyxl>=3.1           # reads/writes real .xlsx Excel files in pure Python
+python-dotenv>=1.0      # loads secrets from a .env file into the environment
