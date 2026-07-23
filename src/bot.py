@@ -67,34 +67,68 @@ class CheckoutBot(discord.Client):
         self._backfilled = True
         await self.backfill_history()
 
+    def _channels_to_scan(self, guild: discord.Guild) -> list[discord.abc.Messageable]:
+        """Decide which channels to read: the whole server, or a fixed list."""
+        if config.SCAN_ALL_CHANNELS:
+            # Every regular text channel in the server.
+            return list(guild.text_channels)
+        # Just the specific IDs from config (skip any we can't find).
+        channels = []
+        for cid in config.CHANNEL_IDS:
+            ch = self.get_channel(cid)
+            if ch is not None:
+                channels.append(ch)
+        return channels
+
     async def backfill_history(self) -> None:
-        """Read the entire channel history and store every past checkout."""
-        channel = self.get_channel(config.CHANNEL_ID) or await self.fetch_channel(
-            config.CHANNEL_ID
-        )
-        new_count = 0
-        seen = 0
-        # oldest_first=True walks from the beginning; limit=None means "all".
-        async for message in channel.history(limit=None, oldest_first=True):
-            record = _maybe_parse(message)
-            if record:
-                seen += 1
-                if database.upsert_checkout(record):
-                    new_count += 1
+        """Read history across all watched channels and store every checkout."""
+        guild = self.get_guild(config.GUILD_ID)
+        if guild is None:
+            print(f"Could not find server {config.GUILD_ID}. Is the bot in it?")
+            return
+
+        channels = self._channels_to_scan(guild)
+        scope = "all channels" if config.SCAN_ALL_CHANNELS else f"{len(channels)} channel(s)"
+        print(f"Scanning {scope} in {guild.name}...")
+
+        total_seen = 0
+        total_new = 0
+        for channel in channels:
+            try:
+                # oldest_first=True walks from the start; limit=None means "all".
+                async for message in channel.history(limit=None, oldest_first=True):
+                    record = _maybe_parse(message)
+                    if record:
+                        total_seen += 1
+                        if database.upsert_checkout(record):
+                            total_new += 1
+            except discord.Forbidden:
+                # The bot can't read this channel -- skip it and keep going.
+                print(f"  (no access to #{channel.name}, skipping)")
+            except discord.HTTPException as exc:
+                print(f"  (error reading #{channel.name}: {exc}, skipping)")
+
         print(
-            f"Backfill complete: {seen} checkouts found, "
-            f"{new_count} new, {seen - new_count} already stored."
+            f"Backfill complete: {total_seen} checkouts found, "
+            f"{total_new} new, {total_seen - total_new} already stored."
         )
-        print("Now listening for new checkouts. Type /export in Discord anytime.")
+        print("Now listening for new checkouts. Type /stats or /export in Discord.")
 
     async def on_message(self, message: discord.Message) -> None:
         """Runs for every new message. We store it if it's a checkout."""
-        if message.channel.id != config.CHANNEL_ID:
+        # Only our server, and only channels we're configured to watch.
+        if message.guild is None or message.guild.id != config.GUILD_ID:
+            return
+        if not config.should_scan(message.channel.id):
             return
         record = _maybe_parse(message)
         if record and database.upsert_checkout(record):
             profile = record.get("profile") or "?"
-            print(f"Logged new checkout: {record.get('product')} (profile: {profile})")
+            channel_name = record.get("channel_name") or "?"
+            print(
+                f"Logged new checkout in #{channel_name}: "
+                f"{record.get('product')} (profile: {profile})"
+            )
 
 
 def _maybe_parse(message: discord.Message) -> Optional[dict]:
@@ -133,6 +167,7 @@ bot = CheckoutBot()
     profile="Only include this profile (partial match)",
     site="Only include this site (partial match)",
     module="Only include this module (partial match)",
+    channel="Only include this channel name (partial match)",
     date_from="Start date, format YYYY-MM-DD",
     date_to="End date, format YYYY-MM-DD",
     contains="Free-text search across all fields",
@@ -142,6 +177,7 @@ async def export_command(
     profile: Optional[str] = None,
     site: Optional[str] = None,
     module: Optional[str] = None,
+    channel: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     contains: Optional[str] = None,
@@ -164,6 +200,7 @@ async def export_command(
         profile=profile,
         site=site,
         module=module,
+        channel=channel,
         date_from_ts=from_ts,
         date_to_ts=to_ts,
         contains=contains,
@@ -176,7 +213,7 @@ async def export_command(
         return
 
     # Build a short label from the filters so the filename is meaningful.
-    label = "_".join(v for v in [profile, site, module, contains] if v) or "all"
+    label = "_".join(v for v in [profile, site, module, channel, contains] if v) or "all"
 
     # Build the .xlsx entirely in memory (no disk), then wrap those bytes in a
     # discord.File so we can upload it as an attachment.
@@ -186,7 +223,7 @@ async def export_command(
     filters_used = ", ".join(
         f"{k}={v}"
         for k, v in {
-            "profile": profile, "site": site, "module": module,
+            "profile": profile, "site": site, "module": module, "channel": channel,
             "from": date_from, "to": date_to, "contains": contains,
         }.items()
         if v
@@ -205,6 +242,7 @@ async def export_command(
     profile="Only count this profile (partial match)",
     site="Only count this site (partial match)",
     module="Only count this module (partial match)",
+    channel="Only count this channel name (partial match)",
     date_from="Start date, format YYYY-MM-DD",
     date_to="End date, format YYYY-MM-DD",
     contains="Free-text search across all fields",
@@ -214,6 +252,7 @@ async def stats_command(
     profile: Optional[str] = None,
     site: Optional[str] = None,
     module: Optional[str] = None,
+    channel: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     contains: Optional[str] = None,
@@ -230,7 +269,7 @@ async def stats_command(
         return
 
     data = stats.compute_stats(
-        profile=profile, site=site, module=module,
+        profile=profile, site=site, module=module, channel=channel,
         date_from_ts=from_ts, date_to_ts=to_ts, contains=contains,
     )
 
@@ -260,11 +299,16 @@ async def stats_command(
         value=stats.format_breakdown(data["by_site"]),
         inline=False,
     )
+    embed.add_field(
+        name="Top Channels",
+        value=stats.format_breakdown(data["by_channel"]),
+        inline=False,
+    )
 
     filters_used = ", ".join(
         f"{k}={v}"
         for k, v in {
-            "profile": profile, "site": site, "module": module,
+            "profile": profile, "site": site, "module": module, "channel": channel,
             "from": date_from, "to": date_to, "contains": contains,
         }.items()
         if v

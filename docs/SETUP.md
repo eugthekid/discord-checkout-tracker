@@ -61,9 +61,15 @@ Discord hides IDs until you enable Developer Mode:
 
 ## 6. Double-check channel access
 
-Make sure the bot's role can actually *see* the checkout channel. If the
+Make sure the bot's role can actually *see* the checkout channel(s). If a
 channel is private, right-click it → **Edit Channel → Permissions**, and add the
 bot (or its role) with **View Channel** + **Read Message History**.
+
+> **Watching the whole server?** If your `.env` has `CHANNEL_IDS=all`, the bot
+> scans every text channel it can *see*. Public channels are fine automatically,
+> but for any **private** channel you must add the bot (as above) or it silently
+> skips that channel. To watch only some channels instead, set
+> `CHANNEL_IDS=<id>,<id>` with the specific channel IDs.
 
 ---
 

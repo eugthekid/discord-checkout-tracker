@@ -32,6 +32,7 @@ from config import EXPORT_DIR
 # (We skip internal columns like raw_json and created_ts.)
 EXPORT_COLUMNS = [
     ("created_at_iso", "Date (UTC)"),
+    ("channel_name", "Channel"),
     ("product", "Product"),
     ("profile", "Profile"),
     ("site", "Site"),
@@ -92,7 +93,10 @@ def _build_workbook(rows: list) -> tuple[Workbook, int, float]:
     ws.append([])  # blank spacer row
     summary = ["" for _ in EXPORT_COLUMNS]
     summary[0] = f"TOTAL: {len(rows)} checkouts"
-    summary[7] = round(total_spend, 2)  # under the "Total ($)" column
+    # Put the spend total under whichever column is "total_amount", so this
+    # stays correct even if we add/reorder columns above.
+    spend_index = [key for key, _ in EXPORT_COLUMNS].index("total_amount")
+    summary[spend_index] = round(total_spend, 2)
     ws.append(summary)
 
     # --- Auto-size columns to fit their content (roughly) ---

@@ -96,10 +96,16 @@ def parse_message(message: Any) -> Optional[dict[str, Any]]:
     # parsing a human-formatted date string.
     created_at = message.created_at
 
+    # Which channel did this land in? getattr keeps it safe if a channel has no
+    # name (e.g. a DM), and works with our fake test messages too.
+    channel = getattr(message, "channel", None)
+
     record: dict[str, Any] = {
         "message_id": str(message.id),
         "created_at_iso": created_at.isoformat(),
         "created_ts": created_at.timestamp(),  # seconds since 1970, for filtering
+        "channel_id": str(getattr(channel, "id", "")) or None,
+        "channel_name": getattr(channel, "name", None),
         # The product line sits in the embed description, e.g.
         # "• 3x Pokemon TCG: 30th Celebration ... - 26.94 USD (OS)"
         "product": (embed.description or "").lstrip("• ").strip() or None,

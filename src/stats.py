@@ -32,9 +32,10 @@ def compute_stats(top_n: int = 5, **filters: Any) -> dict[str, Any]:
     """
     totals = database.aggregate_totals(**filters)
 
-    # GROUP BY profile and by site, keeping only the top few of each.
+    # GROUP BY profile, site, and channel, keeping only the top few of each.
     by_profile = database.group_by_column("profile", limit=top_n, **filters)
     by_site = database.group_by_column("site", limit=top_n, **filters)
+    by_channel = database.group_by_column("channel_name", limit=top_n, **filters)
 
     def rows_to_dicts(rows: list) -> list[dict[str, Any]]:
         return [
@@ -48,6 +49,7 @@ def compute_stats(top_n: int = 5, **filters: Any) -> dict[str, Any]:
         "avg_order_value": round(totals["avg_order_value"], 2),
         "by_profile": rows_to_dicts(by_profile),
         "by_site": rows_to_dicts(by_site),
+        "by_channel": rows_to_dicts(by_channel),
     }
 
 

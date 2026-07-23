@@ -41,12 +41,41 @@ def _require(name: str) -> str:
 # The secret token for YOUR bot (from the Discord Developer Portal).
 DISCORD_TOKEN: str = _require("DISCORD_TOKEN")
 
-# The numeric ID of the channel where checkout webhooks are posted.
-CHANNEL_ID: int = int(_require("CHANNEL_ID"))
-
 # The numeric ID of your server ("guild" in Discord's API terms).
-# Used to register the /export slash command instantly for just your server.
+# Used to register the slash commands instantly for just your server, and to
+# know which server's channels to scan.
 GUILD_ID: int = int(_require("GUILD_ID"))
+
+
+# --- Which channels to watch ---
+#
+# CHANNEL_IDS controls scope. It can be:
+#   - "all"                      -> scan EVERY text channel the bot can read
+#   - "123, 456, 789"            -> scan just those channel IDs (comma-separated)
+# For backward compatibility, if CHANNEL_IDS isn't set we fall back to the old
+# single CHANNEL_ID setting.
+_raw_channels = (os.getenv("CHANNEL_IDS") or os.getenv("CHANNEL_ID") or "").strip()
+
+# True when we should sweep the whole server rather than a fixed list.
+SCAN_ALL_CHANNELS: bool = _raw_channels.lower() == "all"
+
+# The explicit set of channel IDs to watch (empty when SCAN_ALL_CHANNELS).
+CHANNEL_IDS: set[int] = (
+    set()
+    if SCAN_ALL_CHANNELS
+    else {int(x) for x in _raw_channels.replace(",", " ").split() if x}
+)
+
+if not SCAN_ALL_CHANNELS and not CHANNEL_IDS:
+    raise RuntimeError(
+        "No channels configured. In your .env set CHANNEL_IDS=all to watch the "
+        "whole server, or CHANNEL_IDS=<id>,<id> to watch specific channels."
+    )
+
+
+def should_scan(channel_id: int) -> bool:
+    """True if a message in this channel should be considered for capture."""
+    return SCAN_ALL_CHANNELS or channel_id in CHANNEL_IDS
 
 
 # --- Optional settings (have sensible defaults) ---

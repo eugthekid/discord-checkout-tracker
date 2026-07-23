@@ -99,6 +99,7 @@ In Discord, type `/export` and Discord will show the optional filter fields:
 | `profile`   | `Main`       | only that profile (partial match) |
 | `site`      | `pokemon`    | only that site |
 | `module`    | `PokemonCenter` | only that module |
+| `channel`   | `pokemon-success` | only checkouts from that channel |
 | `date_from` | `2026-07-01` | on/after this date |
 | `date_to`   | `2026-07-20` | on/before this date |
 | `contains`  | `Charizard`  | free-text search across all fields |
@@ -119,8 +120,8 @@ count and total spend. Nothing is saved to disk on any device.
 
 `/stats` takes the **same filters** as `/export` but, instead of a file, replies
 with a summary card right in Discord: total checkouts, total spend, average order
-value, and your top profiles and sites. Great for a quick "how did today go?"
-without opening a spreadsheet.
+value, and your top profiles, sites, and channels. Great for a quick "how did
+today go?" without opening a spreadsheet.
 
 ```
 /stats date_from:2026-07-20 date_to:2026-07-20     → just that day's numbers
@@ -130,6 +131,11 @@ without opening a spreadsheet.
 
 ## Notes
 
+- **Which channels it watches** is set by `CHANNEL_IDS` in `.env`:
+  `CHANNEL_IDS=all` scans every channel the bot can read; `CHANNEL_IDS=<id>,<id>`
+  limits it to specific channels. The bot only reads channels it has permission
+  to see — add it to any private channel you want covered. Each checkout records
+  which channel it came from, so you can filter/report by `channel`.
 - **Dates are stored in UTC.** A checkout that shows 3:46 PM local in Discord
   may show a different clock time in the sheet. Filtering still works correctly
   because comparisons use absolute time.

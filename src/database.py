@@ -28,6 +28,8 @@ COLUMNS = [
     "message_id",      # Discord message ID (unique) -> primary key
     "created_at_iso",  # human-readable UTC timestamp of the message
     "created_ts",      # same moment as a number, for fast date-range filtering
+    "channel_id",      # which channel this checkout was posted in
+    "channel_name",    # that channel's name, for readable filtering/reports
     "product",         # the item, from the embed description line
     "module",
     "mode",
@@ -57,11 +59,23 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+def _column_type(col: str) -> str:
+    """The SQL type for a column (numbers vs text)."""
+    return "REAL" if col in ("total_amount", "created_ts") else "TEXT"
+
+
 def init_db() -> None:
-    """Create the checkouts table if it doesn't already exist."""
+    """
+    Create the checkouts table if it doesn't exist, then run a tiny migration:
+    add any COLUMNS that an older database is missing.
+
+    WHY THE MIGRATION: when we add a new column (like channel_name) to an
+    existing database, "CREATE TABLE IF NOT EXISTS" won't touch the old table.
+    So we check which columns exist and ALTER TABLE to add the missing ones --
+    your old rows keep their data and just gain empty new columns.
+    """
     columns_sql = ",\n            ".join(
-        # message_id is the PRIMARY KEY; total_amount/created_ts are numbers;
-        # everything else is stored as text.
+        # message_id is the PRIMARY KEY; everything else is number or text.
         f"{col} REAL" if col in ("total_amount", "created_ts")
         else f"{col} TEXT PRIMARY KEY" if col == "message_id"
         else f"{col} TEXT"
@@ -69,6 +83,12 @@ def init_db() -> None:
     )
     with connect() as conn:
         conn.execute(f"CREATE TABLE IF NOT EXISTS checkouts (\n            {columns_sql}\n        )")
+
+        # Migration: add columns the existing table doesn't have yet.
+        existing = {row["name"] for row in conn.execute("PRAGMA table_info(checkouts)")}
+        for col in COLUMNS:
+            if col not in existing:
+                conn.execute(f"ALTER TABLE checkouts ADD COLUMN {col} {_column_type(col)}")
 
 
 def upsert_checkout(record: dict[str, Any]) -> bool:
@@ -99,6 +119,7 @@ def _build_filters(
     profile: Optional[str] = None,
     site: Optional[str] = None,
     module: Optional[str] = None,
+    channel: Optional[str] = None,
     date_from_ts: Optional[float] = None,
     date_to_ts: Optional[float] = None,
     contains: Optional[str] = None,
@@ -125,6 +146,9 @@ def _build_filters(
     if module:
         clauses.append("module LIKE ?")
         params.append(f"%{module}%")
+    if channel:
+        clauses.append("channel_name LIKE ?")
+        params.append(f"%{channel}%")
     if date_from_ts is not None:
         clauses.append("created_ts >= ?")
         params.append(date_from_ts)
@@ -180,7 +204,7 @@ def group_by_column(column: str, limit: int = 10, **filters: Any) -> list[sqlite
     from a known list, so it's safe to place into the SQL. We still never put
     the *filter values* into SQL directly (those stay as ? params).
     """
-    allowed = {"profile", "site", "module"}
+    allowed = {"profile", "site", "module", "channel_name"}
     if column not in allowed:
         raise ValueError(f"Cannot group by '{column}'. Allowed: {allowed}")
 
